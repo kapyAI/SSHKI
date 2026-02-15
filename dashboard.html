@@ -78,6 +78,20 @@
             text-align: center;
             margin-top: 10px;
         }
+        .bar-container {
+            margin-top: 10px;
+        }
+        .bar-bg {
+            background: #252530;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80, #fbbf24, #f87171);
+            transition: width 0.5s;
+        }
         #status { font-size: 10px; }
     </style>
 </head>
@@ -109,6 +123,13 @@
                 </div>
             </div>
             <div class="small muted" id="weather-feels">Feels like: --°C</div>
+        </div>
+    </div>
+
+    <div class="card" style="max-width: 400px; margin: 10px auto;">
+        <h3></h3>
+        <div class="bar-container">
+            <div class="bar-bg"><div class="bar-fill" id="stat-bar" style="width: 0%"></div></div>
         </div>
     </div>
 
@@ -242,11 +263,21 @@
                 `Updated: ${now.toLocaleTimeString('fi-FI', {hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Helsinki'})} (Helsinki)`;
         }
 
+        async function loadStat() {
+            try {
+                const r = await fetch('api/s.json');
+                const d = await r.json();
+                document.getElementById('stat-bar').style.width = d.v + '%';
+            } catch(e) {}
+        }
+
         // Initial load
         loadAll();
+        loadStat();
         
         // Refresh every 5 minutes
         setInterval(loadAll, 5 * 60 * 1000);
+        setInterval(loadStat, 30000);
     </script>
 </body>
 </html>
