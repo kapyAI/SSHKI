@@ -93,6 +93,17 @@
             transition: width 0.5s;
         }
         #status { font-size: 10px; }
+        .fingrid-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #252530;
+            font-size: 12px;
+        }
+        .fingrid-row:last-child { border-bottom: none; }
+        .fingrid-val { font-weight: bold; }
+        .production { color: #60a5fa; }
+        .consumption { color: #fbbf24; }
     </style>
 </head>
 <body>
@@ -123,6 +134,24 @@
                 </div>
             </div>
             <div class="small muted" id="weather-feels">Feels like: --°C</div>
+        </div>
+
+        <!-- Fingrid Grid -->
+        <div class="card" style="grid-column: span 1;">
+            <h3>⚡ Finnish Grid <span id="fingrid-status" class="loading">...</span></h3>
+            <div class="fingrid-row">
+                <span>Production</span>
+                <span class="fingrid-val production" id="fingrid-prod">-- MW</span>
+            </div>
+            <div class="fingrid-row">
+                <span>Consumption</span>
+                <span class="fingrid-val consumption" id="fingrid-cons">-- MW</span>
+            </div>
+            <div class="fingrid-row">
+                <span>Balance</span>
+                <span class="fingrid-val" id="fingrid-balance">-- MW</span>
+            </div>
+            <div class="small muted" style="margin-top: 8px; font-size: 10px;">Real-time data from Fingrid (3 min)</div>
         </div>
     </div>
 
@@ -203,6 +232,36 @@
             }
         }
 
+        async function fetchFingrid() {
+            try {
+                // Dataset 192 = Production, 193 = Consumption
+                const now = new Date();
+                const start = new Date(now.getTime() - 10 * 60 * 1000); // 10 min ago
+                const end = now;
+                
+                const prodUrl = `${CORS_PROXY}https://api.fingrid.fi/v1/variable/192/events/json?start_time=${start.toISOString()}&end_time=${end.toISOString()}`;
+                const consUrl = `${CORS_PROXY}https://api.fingrid.fi/v1/variable/193/events/json?start_time=${start.toISOString()}&end_time=${end.toISOString()}`;
+                
+                const [prodRes, consRes] = await Promise.all([
+                    fetch(prodUrl),
+                    fetch(consUrl)
+                ]);
+                
+                if (!prodRes.ok || !consRes.ok) throw new Error('API failed');
+                
+                const prodData = await prodRes.json();
+                const consData = await consRes.json();
+                
+                // Get latest values
+                const production = prodData[prodData.length - 1]?.value || 0;
+                const consumption = consData[consData.length - 1]?.value || 0;
+                
+                return { production, consumption, balance: production - consumption };
+            } catch (e) {
+                return { error: e.message };
+            }
+        }
+
         function renderEnergy(data) {
             if (data.error) {
                 document.getElementById('energy-status').textContent = '❌';
@@ -241,7 +300,7 @@
                 document.getElementById('weather-status').textContent = '❌';
                 return;
             }
-            
+
             const c = data.current;
             document.getElementById('weather-status').textContent = '✓';
             document.getElementById('weather-icon').textContent = getWeatherEmoji(c.weather_code);
@@ -250,16 +309,33 @@
             document.getElementById('weather-feels').textContent = `Feels like: ${Math.round(c.apparent_temperature)}°C`;
         }
 
+        function renderFingrid(data) {
+            if (data.error) {
+                document.getElementById('fingrid-status').textContent = '❌';
+                return;
+            }
+
+            document.getElementById('fingrid-status').textContent = '✓';
+            document.getElementById('fingrid-prod').textContent = Math.round(data.production) + ' MW';
+            document.getElementById('fingrid-cons').textContent = Math.round(data.consumption) + ' MW';
+
+            const balanceEl = document.getElementById('fingrid-balance');
+            const balance = data.balance;
+            balanceEl.textContent = (balance > 0 ? '+' : '') + Math.round(balance) + ' MW';
+            balanceEl.className = 'fingrid-val ' + (balance > 0 ? 'production' : 'consumption');
+        }
+
         async function loadAll() {
             document.getElementById('last-update').textContent = 'Updating...';
-            
-            const [energy, weather] = await Promise.all([fetchElectricity(), fetchWeather()]);
-            
+
+            const [energy, weather, fingrid] = await Promise.all([fetchElectricity(), fetchWeather(), fetchFingrid()]);
+
             renderEnergy(energy);
             renderWeather(weather);
-            
+            renderFingrid(fingrid);
+
             const now = new Date();
-            document.getElementById('last-update').textContent = 
+            document.getElementById('last-update').textContent =
                 `Updated: ${now.toLocaleTimeString('fi-FI', {hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Helsinki'})} (Helsinki)`;
         }
 
