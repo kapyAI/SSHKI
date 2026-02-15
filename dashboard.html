@@ -269,12 +269,19 @@
                 return;
             }
             
+            // Add VAT (25.5%) to match consumer prices
+            const VAT_MULTIPLIER = 1.255;
+            const currentPrice = (data.currentPrice || 0) * VAT_MULTIPLIER;
+            const min = data.min * VAT_MULTIPLIER;
+            const max = data.max * VAT_MULTIPLIER;
+            const hourlyPrices = data.hourlyPrices.map(p => ({...p, price: p.price * VAT_MULTIPLIER}));
+            
             document.getElementById('energy-status').textContent = '✓';
-            document.getElementById('energy-current').textContent = data.currentPrice?.toFixed(2) || '--';
-            document.getElementById('energy-current').className = 'big ' + (data.currentPrice < 5 ? 'good' : data.currentPrice > 12 ? 'bad' : 'warn');
-            document.getElementById('energy-min').textContent = `Min: ${data.min.toFixed(2)}c`;
+            document.getElementById('energy-current').textContent = currentPrice.toFixed(2);
+            document.getElementById('energy-current').className = 'big ' + (currentPrice < 6 ? 'good' : currentPrice > 15 ? 'bad' : 'warn');
+            document.getElementById('energy-min').textContent = `Min: ${min.toFixed(2)}c`;
             document.getElementById('energy-min').className = 'small good';
-            document.getElementById('energy-max').textContent = `Max: ${data.max.toFixed(2)}c`;
+            document.getElementById('energy-max').textContent = `Max: ${max.toFixed(2)}c`;
             
             // Chart
             const chart = document.getElementById('energy-chart');
@@ -282,15 +289,15 @@
             const currentHour = parseInt(getHelsinkiHour());
             
             for (let i = 0; i < 24; i++) {
-                const hourData = data.hourlyPrices.find(p => p.hour === i);
+                const hourData = hourlyPrices.find(p => p.hour === i);
                 if (!hourData) continue;
                 
                 const bar = document.createElement('div');
-                const height = ((hourData.price - data.min) / (data.max - data.min || 1)) * 100;
+                const height = ((hourData.price - min) / (max - min || 1)) * 100;
                 bar.style.height = Math.max(4, height) + '%';
                 bar.className = 'bar' + (i === currentHour ? ' current' : '');
-                if (hourData.price < 5) bar.classList.add('good');
-                if (hourData.price > 12) bar.classList.add('bad');
+                if (hourData.price < 6) bar.classList.add('good');
+                if (hourData.price > 15) bar.classList.add('bad');
                 chart.appendChild(bar);
             }
         }
