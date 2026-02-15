@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KäpyAI Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 12px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        @media (min-width: 500px) {
+            .grid { grid-template-columns: 1fr 1fr; max-width: 600px; }
+        }
+        .card {
+            background: #14141a;
+            border-radius: 12px;
+            padding: 14px;
+            border: 1px solid #252530;
+        }
+        .card h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .big { font-size: 32px; font-weight: bold; }
+        .medium { font-size: 18px; }
+        .small { font-size: 12px; color: #888; }
+        .row { display: flex; align-items: center; gap: 10px; }
+        .col { display: flex; flex-direction: column; gap: 3px; }
+        .good { color: #4ade80; }
+        .warn { color: #fbbf24; }
+        .bad { color: #f87171; }
+        .muted { color: #666; }
+        .loading { color: #666; font-style: italic; }
+        .chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 50px;
+            margin-top: 8px;
+        }
+        .bar {
+            flex: 1;
+            background: #3b82f6;
+            border-radius: 2px 2px 0 0;
+            min-height: 4px;
+            transition: height 0.3s;
+        }
+        .bar.current { background: #fbbf24; }
+        .bar.good { background: #4ade80; }
+        .bar.bad { background: #f87171; }
+        .bar-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: #666;
+            margin-top: 4px;
+        }
+        .timestamp {
+            font-size: 10px;
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+        }
+        #status { font-size: 10px; }
+    </style>
+</head>
+<body>
+    <div class="grid">
+        <!-- Energy -->
+        <div class="card">
+            <h3>⚡ Energy <span id="energy-status" class="loading">...</span></h3>
+            <div class="row">
+                <span class="big" id="energy-current">--</span>
+                <span class="small">c/kWh</span>
+            </div>
+            <div class="row" style="margin-top: 8px; gap: 12px;">
+                <span class="small" id="energy-min">Min: --</span>
+                <span class="small" id="energy-max">Max: --</span>
+            </div>
+            <div class="chart" id="energy-chart"></div>
+            <div class="bar-labels"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+        </div>
+
+        <!-- Weather -->
+        <div class="card">
+            <h3>🌤️ Helsinki <span id="weather-status" class="loading">...</span></h3>
+            <div class="row" style="margin-bottom: 10px;">
+                <span style="font-size: 42px;" id="weather-icon">🌡️</span>
+                <div class="col">
+                    <span class="big" id="weather-temp">--°</span>
+                    <span class="small" id="weather-wind">Wind: -- m/s</span>
+                </div>
+            </div>
+            <div class="small muted" id="weather-feels">Feels like: --°C</div>
+        </div>
+    </div>
+
+    <div class="timestamp" id="last-update">Loading...</div>
+
+    <script>
+        const HELSINKI_LAT = 60.1699;
+        const HELSINKI_LON = 24.9384;
+        const CORS_PROXY = 'https://corsproxy.io/?';
+
+        function getWeatherEmoji(code) {
+            const codes = {
+                0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️',
+                45: '🌫️', 48: '🌫️', 51: '🌦️', 53: '🌦️', 55: '🌧️',
+                61: '🌧️', 63: '🌧️', 65: '🌧️',
+                71: '🌨️', 73: '🌨️', 75: '🌨️', 95: '⛈️'
+            };
+            return codes[code] || '🌡️';
+        }
+
+        function getHelsinkiHour() {
+            return new Date().toLocaleString('en-US', {
+                hour: '2-digit', hour12: false, timeZone: 'Europe/Helsinki'
+            });
+        }
+
+        async function fetchElectricity() {
+            try {
+                const now = new Date();
+                const start = new Date(now); start.setHours(0, 0, 0, 0);
+                const end = new Date(now); end.setHours(23, 59, 59, 999);
+                
+                const url = `${CORS_PROXY}https://dashboard.elering.ee/api/nps/price?start=${start.toISOString()}&end=${end.toISOString()}&fields=fi`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed');
+                
+                const data = await response.json();
+                const prices = data.data?.fi || [];
+                const currentHour = parseInt(getHelsinkiHour());
+                
+                let currentPrice = null;
+                const hourlyPrices = [];
+                
+                for (const p of prices) {
+                    const hour = new Date(p.timestamp * 1000).toLocaleString('en-US', {
+                        hour: '2-digit', hour12: false, timeZone: 'Europe/Helsinki'
+                    });
+                    const priceCents = p.price / 10;
+                    hourlyPrices.push({ hour: parseInt(hour), price: priceCents });
+                    if (parseInt(hour) === currentHour) currentPrice = priceCents;
+                }
+                
+                const pricesOnly = hourlyPrices.map(p => p.price);
+                const min = Math.min(...pricesOnly);
+                const max = Math.max(...pricesOnly);
+                
+                return { currentPrice, hourlyPrices, min, max };
+            } catch (e) {
+                return { error: e.message };
+            }
+        }
+
+        async function fetchWeather() {
+            try {
+                const url = `${CORS_PROXY}https://api.open-meteo.com/v1/forecast?latitude=${HELSINKI_LAT}&longitude=${HELSINKI_LON}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Europe/Helsinki`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed');
+                return await response.json();
+            } catch (e) {
+                return { error: e.message };
+            }
+        }
+
+        function renderEnergy(data) {
+            if (data.error) {
+                document.getElementById('energy-status').textContent = '❌';
+                document.getElementById('energy-current').textContent = 'Err';
+                return;
+            }
+            
+            document.getElementById('energy-status').textContent = '✓';
+            document.getElementById('energy-current').textContent = data.currentPrice?.toFixed(2) || '--';
+            document.getElementById('energy-current').className = 'big ' + (data.currentPrice < 5 ? 'good' : data.currentPrice > 12 ? 'bad' : 'warn');
+            document.getElementById('energy-min').textContent = `Min: ${data.min.toFixed(2)}c`;
+            document.getElementById('energy-min').className = 'small good';
+            document.getElementById('energy-max').textContent = `Max: ${data.max.toFixed(2)}c`;
+            
+            // Chart
+            const chart = document.getElementById('energy-chart');
+            chart.innerHTML = '';
+            const currentHour = parseInt(getHelsinkiHour());
+            
+            for (let i = 0; i < 24; i++) {
+                const hourData = data.hourlyPrices.find(p => p.hour === i);
+                if (!hourData) continue;
+                
+                const bar = document.createElement('div');
+                const height = ((hourData.price - data.min) / (data.max - data.min || 1)) * 100;
+                bar.style.height = Math.max(4, height) + '%';
+                bar.className = 'bar' + (i === currentHour ? ' current' : '');
+                if (hourData.price < 5) bar.classList.add('good');
+                if (hourData.price > 12) bar.classList.add('bad');
+                chart.appendChild(bar);
+            }
+        }
+
+        function renderWeather(data) {
+            if (data.error) {
+                document.getElementById('weather-status').textContent = '❌';
+                return;
+            }
+            
+            const c = data.current;
+            document.getElementById('weather-status').textContent = '✓';
+            document.getElementById('weather-icon').textContent = getWeatherEmoji(c.weather_code);
+            document.getElementById('weather-temp').textContent = Math.round(c.temperature_2m) + '°';
+            document.getElementById('weather-wind').textContent = `Wind: ${c.wind_speed_10m} m/s`;
+            document.getElementById('weather-feels').textContent = `Feels like: ${Math.round(c.apparent_temperature)}°C`;
+        }
+
+        async function loadAll() {
+            document.getElementById('last-update').textContent = 'Updating...';
+            
+            const [energy, weather] = await Promise.all([fetchElectricity(), fetchWeather()]);
+            
+            renderEnergy(energy);
+            renderWeather(weather);
+            
+            const now = new Date();
+            document.getElementById('last-update').textContent = 
+                `Updated: ${now.toLocaleTimeString('fi-FI', {hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Helsinki'})} (Helsinki)`;
+        }
+
+        // Initial load
+        loadAll();
+        
+        // Refresh every 5 minutes
+        setInterval(loadAll, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
