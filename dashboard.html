@@ -113,7 +113,6 @@
             <h3>⚡ Energy <span id="energy-status" class="loading">...</span></h3>
             <div class="row">
                 <span class="big" id="energy-current">--</span>
-                <span class="small">c/kWh</span>
             </div>
             <div class="row" style="margin-top: 8px; gap: 12px;">
                 <span class="small" id="energy-min">Min: --</span>
@@ -277,11 +276,11 @@
             const hourlyPrices = data.hourlyPrices.map(p => ({...p, price: p.price * VAT_MULTIPLIER}));
             
             document.getElementById('energy-status').textContent = '✓';
-            document.getElementById('energy-current').textContent = currentPrice.toFixed(2);
+            document.getElementById('energy-current').textContent = currentPrice.toFixed(2).replace('.', ',') + 'snt/kWh';
             document.getElementById('energy-current').className = 'big ' + (currentPrice < 6 ? 'good' : currentPrice > 15 ? 'bad' : 'warn');
-            document.getElementById('energy-min').textContent = `Min: ${min.toFixed(2)}c`;
+            document.getElementById('energy-min').textContent = `Min: ${min.toFixed(2).replace('.', ',')}snt`;
             document.getElementById('energy-min').className = 'small good';
-            document.getElementById('energy-max').textContent = `Max: ${max.toFixed(2)}c`;
+            document.getElementById('energy-max').textContent = `Max: ${max.toFixed(2).replace('.', ',')}snt`;
             
             // Chart
             const chart = document.getElementById('energy-chart');
