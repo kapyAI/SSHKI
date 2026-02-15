@@ -226,7 +226,11 @@
                 const now = new Date();
                 const start = new Date(now); start.setHours(0,0,0,0);
                 const end = new Date(now); end.setHours(23,59,59,999);
-                const response = await fetch(`/api/electricity?start=${start.toISOString()}&end=${end.toISOString()}&fields=fi`);
+                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                const url = isLocalhost 
+                    ? `/api/electricity?start=${start.toISOString()}&end=${end.toISOString()}&fields=fi`
+                    : `https://corsproxy.io/?https://dashboard.elering.ee/api/nps/price?start=${start.toISOString()}&end=${end.toISOString()}&fields=fi`;
+                const response = await fetch(url);
                 if (!response.ok) throw new Error('Failed to fetch electricity prices');
                 const data = await response.json();
                 const currentHour = getHelsinkiHour();
@@ -246,7 +250,11 @@
 
         async function fetchWeather() {
             try {
-                const response = await fetch(`/api/weather?latitude=${HELSINKI_LAT}&longitude=${HELSINKI_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Europe/Helsinki&forecast_days=4`);
+                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                const url = isLocalhost
+                    ? `/api/weather?latitude=${HELSINKI_LAT}&longitude=${HELSINKI_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Europe/Helsinki&forecast_days=4`
+                    : `https://corsproxy.io/?https://api.open-meteo.com/v1/forecast?latitude=${HELSINKI_LAT}&longitude=${HELSINKI_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Europe/Helsinki&forecast_days=4`;
+                const response = await fetch(url);
                 if (!response.ok) throw new Error('Failed to fetch weather');
                 return await response.json();
             } catch (error) {
