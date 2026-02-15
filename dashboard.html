@@ -186,35 +186,50 @@
 
         async function fetchElectricity() {
             try {
-                const now = new Date();
-                const start = new Date(now); start.setHours(0, 0, 0, 0);
-                const end = new Date(now); end.setHours(23, 59, 59, 999);
-                
-                const url = `${CORS_PROXY}https://dashboard.elering.ee/api/nps/price?start=${start.toISOString()}&end=${end.toISOString()}&fields=fi`;
+                // Use Finnish spot-hinta.fi API - better than Elering (includes VAT, 15min data, rank)
+                const url = `${CORS_PROXY}https://api.spot-hinta.fi/Today`;
                 const response = await fetch(url);
                 if (!response.ok) throw new Error('Failed');
                 
                 const data = await response.json();
-                const prices = data.data?.fi || [];
                 const currentHour = parseInt(getHelsinkiHour());
                 
                 let currentPrice = null;
+                let currentRank = null;
                 const hourlyPrices = [];
+                const hourData = {};
                 
-                for (const p of prices) {
-                    const hour = new Date(p.timestamp * 1000).toLocaleString('en-US', {
-                        hour: '2-digit', hour12: false, timeZone: 'Europe/Helsinki'
-                    });
-                    const priceCents = p.price / 10;
-                    hourlyPrices.push({ hour: parseInt(hour), price: priceCents });
-                    if (parseInt(hour) === currentHour) currentPrice = priceCents;
+                // Group by hour, take average
+                for (const item of data) {
+                    const hour = parseInt(item.DateTime.slice(11, 13));
+                    const priceWithTax = item.PriceWithTax * 100; // Convert to snt/kWh
+                    
+                    if (!hourData[hour]) {
+                        hourData[hour] = { prices: [], ranks: [] };
+                    }
+                    hourData[hour].prices.push(priceWithTax);
+                    hourData[hour].ranks.push(item.Rank);
+                    
+                    if (hour === currentHour) {
+                        currentPrice = priceWithTax;
+                        currentRank = item.Rank;
+                    }
+                }
+                
+                // Build hourly averages
+                for (let h = 0; h < 24; h++) {
+                    if (hourData[h]) {
+                        const avgPrice = hourData[h].prices.reduce((a, b) => a + b, 0) / hourData[h].prices.length;
+                        const avgRank = Math.round(hourData[h].ranks.reduce((a, b) => a + b, 0) / hourData[h].ranks.length);
+                        hourlyPrices.push({ hour: h, price: avgPrice, rank: avgRank });
+                    }
                 }
                 
                 const pricesOnly = hourlyPrices.map(p => p.price);
                 const min = Math.min(...pricesOnly);
                 const max = Math.max(...pricesOnly);
                 
-                return { currentPrice, hourlyPrices, min, max };
+                return { currentPrice, currentRank, hourlyPrices, min, max };
             } catch (e) {
                 return { error: e.message };
             }
@@ -268,19 +283,19 @@
                 return;
             }
             
-            // Add VAT (25.5%) to match consumer prices
-            const VAT_MULTIPLIER = 1.255;
-            const currentPrice = (data.currentPrice || 0) * VAT_MULTIPLIER;
-            const min = data.min * VAT_MULTIPLIER;
-            const max = data.max * VAT_MULTIPLIER;
-            const hourlyPrices = data.hourlyPrices.map(p => ({...p, price: p.price * VAT_MULTIPLIER}));
+            // spot-hinta.fi already includes VAT
+            const currentPrice = data.currentPrice || 0;
+            const currentRank = data.currentRank || 0;
+            const min = data.min;
+            const max = data.max;
+            const hourlyPrices = data.hourlyPrices;
             
             document.getElementById('energy-status').textContent = '✓';
             document.getElementById('energy-current').textContent = currentPrice.toFixed(2).replace('.', ',') + 'snt/kWh';
-            document.getElementById('energy-current').className = 'big ' + (currentPrice < 6 ? 'good' : currentPrice > 15 ? 'bad' : 'warn');
-            document.getElementById('energy-min').textContent = `Min: ${min.toFixed(2).replace('.', ',')}snt`;
-            document.getElementById('energy-min').className = 'small good';
-            document.getElementById('energy-max').textContent = `Max: ${max.toFixed(2).replace('.', ',')}snt`;
+            document.getElementById('energy-current').className = 'big ' + (currentRank < 30 ? 'good' : currentRank > 70 ? 'bad' : 'warn');
+            document.getElementById('energy-min').textContent = `Rank: ${currentRank}/100`;
+            document.getElementById('energy-min').className = 'small ' + (currentRank < 30 ? 'good' : currentRank > 70 ? 'bad' : '');
+            document.getElementById('energy-max').textContent = `Range: ${min.toFixed(2).replace('.', ',')}-${max.toFixed(2).replace('.', ',')}snt`;
             
             // Chart
             const chart = document.getElementById('energy-chart');
@@ -295,8 +310,8 @@
                 const height = ((hourData.price - min) / (max - min || 1)) * 100;
                 bar.style.height = Math.max(4, height) + '%';
                 bar.className = 'bar' + (i === currentHour ? ' current' : '');
-                if (hourData.price < 6) bar.classList.add('good');
-                if (hourData.price > 15) bar.classList.add('bad');
+                if (hourData.rank < 30) bar.classList.add('good');
+                if (hourData.rank > 70) bar.classList.add('bad');
                 chart.appendChild(bar);
             }
         }
